@@ -151,9 +151,12 @@ class CacheManager(dict):
   def _notify_updated(self, item):
     with self._lock:
       accessed_at = int(Framework.utils.timestamp_from_datetime(item.accessed_at))
+      modified_at = None
+      if item.modified_at:
+        modified_at = int(Framework.utils.timestamp_from_datetime(item.modified_at))
       dct = dict(
         accessed_at = accessed_at,
-        modified_at = int(Framework.utils.timestamp_from_datetime(item.modified_at)),
+        modified_at = modified_at,
         expiry_interval = int(item._expire),
         attributes = dict(item._attributes),
         item_sizes = dict(item._item_sizes)
