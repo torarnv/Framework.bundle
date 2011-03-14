@@ -24,6 +24,10 @@ DataPath = None
 Debug = False
 """ Check whether debugging is enabled """
 
+
+HTTP_TIMEOUT_VAR_NAME = "PLEX_MEDIA_SERVER_PLUGIN_TIMEOUT"
+HTTP_DEFAULT_TIMEOUT = 20.0
+
 Response = {}
 MimeTypes = {}
 ViewGroups = {}
@@ -46,7 +50,7 @@ __XML_RESPONSE_OK = "<InternalResponse>OK</InternalResponse>"
 
 ####################################################################################################    
 
-def AddRequestHandler(prefix, handler, name="", thumb="", art=""):
+def AddRequestHandler(prefix, handler, name="", thumb="", art="", titleBar=""):
   """
     Add a request handler for a given path prefix. This must be a function within the plugin which
     accepts pathNouns and count as arguments. The prefix should not include a trailing '/'
@@ -65,7 +69,7 @@ def AddRequestHandler(prefix, handler, name="", thumb="", art=""):
   """
   global __requestHandlers
   if not __requestHandlers.has_key(prefix):
-    handler_info = {"handler":handler, "name":name, "thumb":thumb, "art":art}
+    handler_info = {"handler":handler, "name":name, "thumb":thumb, "art":art, "titleBar":titleBar}
     __requestHandlers[prefix] = handler_info
     Log.Add("(Framework) Adding request handler for prefix '%s'" % prefix)
 
@@ -289,8 +293,12 @@ def __run(_bundlePath):
   global __logFilePath
   global __requestHandlers
   
-  supportFilesPath = os.environ["HOME"] + "/Library/Application Support/Plex Media Server/Plug-in Support"
-  logFilesPath = os.environ["HOME"] + "/Library/Logs/PMS Plugin Logs/"
+  if sys.platform == "win32":
+    supportFilesPath = os.environ["PLEXLOCALAPPDATA"] + "\\Plug-in Support"
+    logFilesPath = os.environ["PLEXLOCALAPPDATA"] + "\\Logs\\PMS Plugin Logs\\"
+  else:
+    supportFilesPath = os.environ["HOME"] + "/Library/Application Support/Plex Media Server/Plug-in Support"
+    logFilesPath = os.environ["HOME"] + "/Library/Logs/PMS Plugin Logs/"
   
   def checkpath(path):
     try:
@@ -386,6 +394,11 @@ def __run(_bundlePath):
   HTTP.__loadCookieJar()
   Log.Add("(Framework) Loaded cookie jar")
   
+  if HTTP_TIMEOUT_VAR_NAME in os.environ:
+    HTTP.SetTimeout(float(os.environ[HTTP_TIMEOUT_VAR_NAME]))
+  else:
+    HTTP.SetTimeout(HTTP_DEFAULT_TIMEOUT)
+  
   # Attempt to import the plugin module - if debugging is enabled, don't catch exceptions
   if Debug:
     import Code as _plugin
@@ -417,7 +430,7 @@ def __run(_bundlePath):
       path = path.lstrip("GET ").strip()
       
       # Split the path into components and decode.
-      pathNouns = path.split('/')
+      pathNouns = path.replace('?query=', '/').split('/')
       pathNouns = [urllib.unquote(p) for p in pathNouns]
       
       # If no input was given, return an error
@@ -436,6 +449,7 @@ def __run(_bundlePath):
         if pathNouns[count-1] == "":
           count = count - 1
           pathNouns.pop(len(pathNouns)-1)
+          
         Log.Add("(Framework) Handling request :  " + path, False)
         
         # Check for a management request
@@ -538,8 +552,24 @@ def __handlePMSRequest(pathNouns, count):
         item.SetAttr("name", handler["name"])
         item.SetAttr("thumb", ExposedResourcePath(handler["thumb"]))
         item.SetAttr("art", ExposedResourcePath(handler["art"]))
+        item.SetAttr("titleBar", ExposedResourcePath(handler["titleBar"]))
         dir.AppendItem(item)
       return dir.ToXML()
+      
+    # Jump directly to the root prefix based on identifier
+    elif len(pathNouns) == 4 and pathNouns[1] == 'plugins' and pathNouns[3] == 'root':
+      keys = __requestHandlers.keys()
+      Response['Status'] = '301 Moved Permanently'
+      for key in keys:
+        if key.startswith('/video'):
+          Response['Headers'] = 'Location: %s\r\n' % key
+          return ''
+      for key in keys:
+        if key.startswith('/music'):
+          Response['Headers'] = 'Location: %s\r\n' % key
+          return ''
+      Response['Headers'] = 'Location: %s\r\n' % keys[0]
+      return ''
 
 ####################################################################################################    
 

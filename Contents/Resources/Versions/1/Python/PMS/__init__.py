@@ -3,12 +3,15 @@
 #  Copyright (C) 2008-2009 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
 #
 
-import __error, Plugin, Datetime, RSS, Client, Data, Database, Dict, Hash, Helper, HTTP, JSON, Locale, Network, Prefs, Resource, String, Thread, XML, YAML
+import __error, Request, Plugin, Datetime, RSS, Client, Data, Database, Dict, Hash, Helper, HTTP, JSON, Locale, Network, Prefs, Resource, String, Thread, XML, YAML, Plist
 from Shortcuts import *
 from Objects import *
 from Decorators import *
 from Constants import *
 from Platform import Platform
+
+from Routes import ConnectRoute as route
+from Routes import GenerateRoute as Route
 
 import sys as __sys, traceback as __traceback
 Error = __error.StandardErrors
@@ -45,7 +48,11 @@ def Log(msg, debugOnly=True, encoding=None):
       pass
     
     msg = "%s: %-40s:   %s" % (str(Datetime.Now().time()), Plugin.Identifier, msg)
-    __sys.stderr.write("%s\n" % msg)
+    
+    # Don't write to stderr on Windows, it causes issues.
+    if __sys.platform != "win32":
+      __sys.stderr.write("%s\n" % msg)
+      
     Thread.Lock("Framework.Log", addToLog=False)
     if __logSaveBuffer == None:
       __logSaveBuffer = msg + "\n"

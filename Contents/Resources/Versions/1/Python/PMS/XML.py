@@ -3,7 +3,7 @@
 #  Copyright (C) 2008-2009 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
 #
 
-from lxml import etree, html
+from lxml import etree, html, objectify
 from lxml.html.soupparser import fromstring
 import HTTP, Plugin
 
@@ -45,5 +45,20 @@ def StringFromElement(el, encoding="utf8", method=None):
     
   if method == None: method = "xml"
   return etree.tostring(el, pretty_print=Plugin.Debug, encoding=encoding)
+
+####################################################################################################
+
+def ObjectFromString(string):
+  return objectify.fromstring(string)
+
+####################################################################################################
+
+def ObjectFromURL(url, values=None, headers={}, cacheTime=None, autoUpdate=False, encoding=None, errors=None):
+  return ObjectFromString(HTTP.Request(url, values, headers, cacheTime, autoUpdate, encoding, errors))
+
+####################################################################################################
+
+def StringFromObject(obj, encoding="utf8"):
+  return etree.tostring(obj, pretty_print=Plugin.Debug, encoding=encoding)
 
 ####################################################################################################

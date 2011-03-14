@@ -7,7 +7,7 @@
   Functions for handling JSON content.
 """
 
-import __lib.demjson as json
+import demjson as json
 import HTTP
 
 ####################################################################################################

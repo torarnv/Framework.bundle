@@ -4,10 +4,25 @@
 #  Copyright (C) 2008-2009 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
 #
 
-import os, sys
+import importer
+#importer.install()
 
-PMSLibPath = os.path.join(sys.path[0], "PMS/__lib")
-sys.path.append(PMSLibPath)
+import os, sys
+from platform import Platform
+
+if sys.platform == "win32":
+  # This is needed to ensure binary data transfer over stdio between PMS and plugins
+  import msvcrt
+  msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+  msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+
+  # This is needed to prevent explosions when there's a system Python installed whose libraries conflict with our own
+  for x in [x for x in sys.path if 'plex' not in x.lower()]: sys.path.remove(x)
+
+PMSLibPath = os.path.join(sys.path[0], "../../../Platforms/%s/%s/Libraries" % (Platform.OS, Platform.CPU))
+PMSSharedLibPath = os.path.join(sys.path[0], "../../../Platforms/Shared/Libraries")
+sys.path.insert(0, PMSLibPath)
+sys.path.insert(0, PMSSharedLibPath)
 
 # Import the Plugin module
 import PMS.Plugin, PMS.JSON
@@ -16,4 +31,4 @@ import PMS.Plugin, PMS.JSON
 PMS.Plugin.MimeTypes = PMS.JSON.DictFromFile(os.path.join(os.path.split(sys.argv[0])[0], "PMS/MimeTypes.json"))
 
 # Run the plugin
-if len(sys.argv) == 2: PMS.Plugin.__run(sys.argv[1])
+if len(sys.argv) >= 2: PMS.Plugin.__run(sys.argv[-1])

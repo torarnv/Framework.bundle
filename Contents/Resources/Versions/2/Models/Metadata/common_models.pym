@@ -1,0 +1,40 @@
+#
+#  Plex Extension Framework
+#  Copyright (C) 2008-2010 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
+#
+
+from common_templates import MediaProxyContainer
+
+
+class MetadataModel(Template.Model, Template.Abstract):
+  guid_args = [
+    'lang'
+  ]
+  genres              = Template.Set(Template.String())
+  tags                = Template.Set(Template.String())
+  collections         = Template.Set(Template.String())
+  duration            = Template.Integer()
+  rating              = Template.Float()
+  original_title      = Template.String()
+  
+  
+  # Interface settings
+  
+  key                 = Template.String()
+  key.is_synthetic
+  
+  rating_key          = Template.String()
+  rating_key.is_synthetic
+  
+  collections.exclude_from_interface
+  
+  genres.xml_tag      = 'Genre'
+  tags.xml_tag        = 'Tag'
+  
+
+class Person(Template.Model):
+  guid_args = [
+    'lang'
+  ]
+  name = Template.String()
+  photos = MediaProxyContainer()

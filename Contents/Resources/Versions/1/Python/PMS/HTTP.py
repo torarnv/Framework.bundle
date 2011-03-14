@@ -3,7 +3,7 @@
 #  Copyright (C) 2008-2009 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
 #
 
-import urllib, urllib2, cookielib, os, StringIO, gzip
+import urllib, urllib2, cookielib, os, StringIO, gzip, socket
 import PMS, Data, Datetime, Thread
 
 ####################################################################################################
@@ -16,6 +16,10 @@ __cache       = {}
 __headers     = {"User-agent" : "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_5_6; en-us) AppleWebKit/530.1+ (KHTML, like Gecko) Version/3.2.1 Safari/525.27.1", "Accept-encoding" : "gzip"}
 __saveScheduled = False
 __autoUpdateCacheTime = 60
+
+def SetTimeout(timeout):
+  socket.setdefaulttimeout(timeout)
+  PMS.Log("(Framework) Set the default socket timeout to %.1f seconds" % timeout)
 
 ####################################################################################################
 

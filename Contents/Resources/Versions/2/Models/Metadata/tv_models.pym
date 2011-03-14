@@ -1,0 +1,92 @@
+#
+#  Plex Extension Framework
+#  Copyright (C) 2008-2010 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
+#
+
+from common_models import Person
+from common_records import Role
+from common_templates import MediaProxyContainer
+
+
+class Episode(Template.Record):
+  title                     = Template.String()
+  summary                   = Template.String()
+  originally_available_at   = Template.Date()
+  rating                    = Template.Float()
+  writers                   = Template.Set(Template.String())
+  directors                 = Template.Set(Template.String())
+  producers                 = Template.Set(Template.String())
+  guest_stars               = Template.Set(Template.String())
+  thumbs                    = MediaProxyContainer()
+  absolute_index            = Template.Integer()
+  
+  # Interface settings
+  writers.xml_tag           = 'Writer'
+  directors.xml_tag         = 'Director'
+  producers.xml_tag         = 'Producer'
+  guest_stars.xml_tag       = 'Role'
+
+  xml_tag                   = 'Video'
+  xml_attributes            =  dict(type = 'episode')
+  
+  index                     = Template.Integer()
+  index.is_synthetic
+  
+  show                      = Template.String()
+  show.is_synthetic
+  show.xml_attr_name        = 'grandparentTitle'
+  
+  season                    = Template.Integer()
+  season.is_synthetic
+  season.xml_attr_name      = 'parentIndex'
+  
+
+class Season(Template.Record):
+  summary                   = Template.String()
+  posters                   = MediaProxyContainer()
+  banners                   = MediaProxyContainer()
+  episodes                  = Template.Map(Episode())
+  episodes.save_items_externally
+  
+  
+  # Interface settings
+  
+  xml_tag                   = 'Directory'
+  xml_attributes            =  dict(type = 'season')
+  
+  episodes.exclude_from_interface
+  
+  index                     = Template.Integer()
+  index.is_synthetic
+  
+  title                     = Template.String()
+  title.is_synthetic
+  
+  show                      = Template.String()
+  show.is_synthetic
+  show.xml_attr_name        = 'parentTitle'
+  
+  
+class TV_Show(MetadataModel):
+  title                     = Template.String()
+  summary                   = Template.String()
+  originally_available_at   = Template.Date()
+  content_rating            = Template.String()
+  studio                    = Template.String()
+  posters                   = MediaProxyContainer()
+  banners                   = MediaProxyContainer()
+  art                       = MediaProxyContainer()
+  themes                    = MediaProxyContainer()
+  seasons                   = Template.Map(Season())
+  roles                     = Template.Set(Role())
+  countries                 = Template.Set(Template.String())
+  seasons.save_items_externally
+  
+  # Interface settings
+  xml_tag                   = 'Directory'
+  countries.xml_tag         = 'Country'
+  xml_attributes            =  dict(type = 'show')
+  
+  seasons.exclude_from_interface
+  
+  

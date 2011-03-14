@@ -3,9 +3,10 @@
 #  Copyright (C) 2008-2009 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
 #
 
-import sys, os, pickle, traceback, string, urllib, time, random, shutil
+import sys, os, pickle, traceback, string, urllib, time, random, shutil, urlparse, cgi, types, cerealizer
 import PMS, Locale, HTTP, XML, Database, Prefs, Data, Dict, Resource, Objects, Thread, Helper, Client, JSON
 from PMS.Shortcuts import *
+from Routes import MatchRoute
 import __objectManager
 
 ####################################################################################################    
@@ -18,10 +19,14 @@ UpdatingCache = False
 
 ####################################################################################################    
 
+HTTP_TIMEOUT_VAR_NAME = "PLEX_MEDIA_SERVER_PLUGIN_TIMEOUT"
+HTTP_DEFAULT_TIMEOUT = 20.0
+
 __pluginModule = None
 __logFilePath = None
 __requestHandlers = {}
 __prefixHandlers = {}
+PublicFunctionArgs = {}
 LastPrefix = None
 
 __modBlacklist = []
@@ -40,12 +45,12 @@ ViewModes = {"List": 65586, "InfoList": 65592, "MediaPreview": 458803, "Showcase
 
 ####################################################################################################
 
-def AddPrefixHandler(prefix, handler, name, thumb="icon-default.png", art="art-default.png"):
+def AddPrefixHandler(prefix, handler, name, thumb="icon-default.png", art="art-default.png", titleBar="titlebar-default.png"):
   global __prefixHandlers
   if prefix[-1] == "/":
     prefix = prefix[:-1]
   if not __prefixHandlers.has_key(prefix):
-    handler_info = {"handler":handler, "name":name, "thumb":thumb, "art":art}
+    handler_info = {"handler":handler, "name":name, "thumb":thumb, "art":art, "titleBar":titleBar}
     __prefixHandlers[prefix] = handler_info
     PMS.Log("(Framework) Added a handler for prefix '%s'" % prefix)
   else:
@@ -215,10 +220,15 @@ def __run(_bundlePath):
   random.seed()
   
   # Set up the support file paths
-  pmsPath = "%s/Library/Application Support/Plex Media Server" % os.environ["HOME"]
+  if sys.platform == "win32":
+    pmsPath = os.environ["PLEXLOCALAPPDATA"]
+    logFilesPath = "%s\\Logs\\PMS Plugin Logs" % os.environ["PLEXLOCALAPPDATA"]
+  else:
+    pmsPath = "%s/Library/Application Support/Plex Media Server" % os.environ["HOME"]
+    logFilesPath = "%s/Library/Logs/PMS Plugin Logs" % os.environ["HOME"]
+  
   supportFilesPath = "%s/Plug-in Support" % pmsPath
   frameworkSupportFilesPath = "%s/Framework Support" % pmsPath
-  logFilesPath = "%s/Library/Logs/PMS Plugin Logs" % os.environ["HOME"]
   
   # Make sure framework directories exist
   def checkpath(path):
@@ -344,6 +354,10 @@ def __run(_bundlePath):
   Prefs.__load()
   HTTP.__loadCookieJar()
   HTTP.__loadCache()
+  if HTTP_TIMEOUT_VAR_NAME in os.environ:
+    HTTP.SetTimeout(float(os.environ[HTTP_TIMEOUT_VAR_NAME]))
+  else:
+    HTTP.SetTimeout(HTTP_DEFAULT_TIMEOUT)
   PMS.Log("(Framework) Initialized framework modules")
 
   # Call the plug-in's Start method
@@ -384,129 +398,169 @@ def __run(_bundlePath):
       if headers.has_key("X-Plex-Version"):
         Client.__setVersion(headers["X-Plex-Version"])
 
-      # Extract arguments
-      kwargs = {}
-      mpath = path
-      if path.find("?") >= 0:
-        parts = path.split("?")
-        mpath = parts[0]
-        args = parts[1].split("&")
-        for arg in args:
-          kwarg = arg.split("=")
-          if len(kwarg) == 2:
-            name = urllib.unquote(kwarg[0])
-            value = urllib.unquote(kwarg[1])
-            kwargs[name] = value
-      if mpath[-1] == "/":
-        mpath = mpath[:-1]
-        
-      # Split the path into components and decode.
-      pathNouns = path.split('/')
-      pathNouns = [urllib.unquote(p) for p in pathNouns]
+      PMS.Request.Headers.clear()
+      PMS.Request.Headers.update(headers)
       
-      # If no input was given, return an error
-      if len(pathNouns) <= 1:
-        __return("%s\r\n\r\n" % PMS.Error['BadRequest'])
-        
-      # Otherwise, attempt to handle the request
+      req = urlparse.urlparse(path)
+      path = req.path
+      qs_args = cgi.parse_qs(req.query)
+      kwargs = {}
+      if 'function_args' in qs_args:
+        try:
+          unquoted_args = urllib.unquote(qs_args['function_args'][0])
+          decoded_args = PMS.String.Decode(unquoted_args)
+          kwargs = cerealizer.loads(decoded_args)
+        except:
+          PMS.Log(PMS.Plugin.Traceback())
+          raise Exception("Unable to deserialize arguments")
+      
+      for arg_name in qs_args:
+        if arg_name != 'function_args':
+          kwargs[arg_name] = qs_args[arg_name][0]
+      
+      # First, try to match a connected route
+      rpath = path
+      for key in __prefixHandlers:
+        if rpath.count(key, 0, len(key)) == 1:
+          rpath = rpath[len(key):]
+          break
+      f, route_kwargs = MatchRoute(rpath)
+      
+      if f is not None:
+        PMS.Log("(Framework) Handling route request :  %s" % path, False)
+        route_kwargs.update(kwargs)
+        result = f(**route_kwargs)
+
+      # No route, fall back to other path handling methods
       else:
-        result = None
-        pathNouns.pop(0)
-        count = len(pathNouns)
-        if pathNouns[-1] == "":
-          pathNouns.pop(len(pathNouns)-1)
-        PMS.Log("(Framework) Handling request :  %s" % path, False)
+        mpath = path
         
-        # Check for a management request
-        if pathNouns[0] == ":":
-          result = __handlePMSRequest(pathNouns, path, **kwargs)
+        if mpath[-1] == "/":
+          mpath = mpath[:-1]
+        
+        # Split the path into components and decode.
+        pathNouns = path.split('/')
+        pathNouns = [urllib.unquote(p) for p in pathNouns]
+      
+        # If no input was given, return an error
+        if len(pathNouns) <= 1:
+          __return("%s\r\n\r\n" % PMS.Error['BadRequest'])
+        
+        # Otherwise, attempt to handle the request
+        else:
+          result = None
+          pathNouns.pop(0)
+          count = len(pathNouns)
+          if pathNouns[-1] == "":
+            pathNouns.pop(len(pathNouns)-1)
+          PMS.Log("(Framework) Handling request :  %s" % path, False)
+        
+          # Check for a management request
+          if pathNouns[0] == ":":
+            result = __handlePMSRequest(pathNouns, path, **kwargs)
 
-        else:  
-          handler = None
-          isPrefixHandler = False
-
-          # See if there's a prefix handler available
-          for key in __prefixHandlers:
-            if mpath.count(key, 0, len(key)) == 1:
-              LastPrefix = key
-          if mpath in __prefixHandlers:
-            handler = __prefixHandlers[mpath]["handler"]
-            isPrefixHandler = True
-            
-          else:
-            # Check each request handler to see if it handles the current prefix
-            popped = False
-            for key in __requestHandlers:
-              if handler is None:
-                if path.count(key, 0, len(key)) == 1:
-                  # Remove the prefix from the path
-                  keyNounCount = len(key.split('/')) - 1
-                  for i in range(keyNounCount):
-                    pathNouns.pop(0)
-                  count = count - keyNounCount
-                  # Find the request handler
-                  handler = __requestHandlers[key]["handler"]
-                  LastPrefix = key
-                  popped = True
-            
-            # If no path request handler was found, make sure we still pop the prefix so internal requests work
+          else:  
+            handler = None
+            isPrefixHandler = False
+          
+            # See if there's a prefix handler available
             for key in __prefixHandlers:
-              if popped == False:
-                if mpath.count(key, 0, len(key)) == 1:
-                  keyNounCount = len(key.split('/')) - 1
-                  for i in range(keyNounCount):
-                    pathNouns.pop(0)
-                  popped = True
+              if mpath.count(key, 0, len(key)) == 1:
+                LastPrefix = key
+            if mpath in __prefixHandlers:
+              handler = __prefixHandlers[mpath]["handler"]
+              isPrefixHandler = True
+            
+            else:
+              # Check each request handler to see if it handles the current prefix
+              popped = False
+              for key in __requestHandlers:
+                if handler is None:
+                  if path.count(key, 0, len(key)) == 1:
+                    # Remove the prefix from the path
+                    keyNounCount = len(key.split('/')) - 1
+                    for i in range(keyNounCount):
+                      pathNouns.pop(0)
+                    count = count - keyNounCount
+                    # Find the request handler
+                    handler = __requestHandlers[key]["handler"]
+                    LastPrefix = key
+                    popped = True
+            
+              # If no path request handler was found, make sure we still pop the prefix so internal requests work
+              for key in __prefixHandlers:
+                if popped == False:
+                  if mpath.count(key, 0, len(key)) == 1:
+                    keyNounCount = len(key.split('/')) - 1
+                    for i in range(keyNounCount):
+                      pathNouns.pop(0)
+                    popped = True
 
-          # Check whether we should handle the request internally
-          handled = False
-          if count > 0:
-            if pathNouns[0] == ":":
-              handled = True
-              result = __handleInternalRequest(pathNouns, path, **kwargs)
+            # Check whether we should handle the request internally
+            handled = False
+            if count > 0:
+              if pathNouns[0] == ":":
+                handled = True
+                result = __handleInternalRequest(pathNouns, path, **kwargs)
     
           
-          # Check if the App Store has flagged the plug-in as broken
-          if os.path.exists(os.path.join(frameworkSupportFilesPath, "%s.broken" % Identifier)):
-            #TODO: Localise this bit, use message from the App Store if available
-            handled = True
-            result = PMS.Objects.MessageContainer("Please try again later", "This plug-in is currently unavailable")
-            PMS.Log("(Framework) Plug-in is flagged as broken")
+            # Check if the App Store has flagged the plug-in as broken
+            if os.path.exists(os.path.join(frameworkSupportFilesPath, "%s.broken" % Identifier)):
+              #TODO: Localise this bit, use message from the App Store if available
+              handled = True
+              result = PMS.Objects.MessageContainer("Please try again later", "This plug-in is currently unavailable")
+              PMS.Log("(Framework) Plug-in is flagged as broken")
           
-          # If the request hasn't been handled, and we have a valid request handler, call it
-          else:
-            if not handled and handler is not None:
-              if isPrefixHandler:
-                result = handler(**kwargs)
-              else:
-                result = handler(pathNouns, path, **kwargs)
+            # If the request hasn't been handled, and we have a valid request handler, call it
+            else:
+              if not handled and handler is not None:
+                if isPrefixHandler:
+                  result = handler(**kwargs)
+                else:
+                  result = handler(pathNouns, path, **kwargs)
         
-        # If the request wasn't handled, return an error
-        if result == None:
-          PMS.Log("(Framework) Request not handled by plug-in", False)
-          response = "%s\r\n\r\n" % PMS.Error['NotFound']
-          
-        # If the plugin returned an error, return it to PMS
-        elif result in PMS.Error.values():
-          PMS.Log("(Framework) Plug-in returned an error :  %s" % result, False)
-          response = "%s\r\n" % result
-          
-        # Otherwise, check if a valid object was returned, and return the result
-        elif __objectManager.ObjectHasBase(result, Objects.Object):
-          PMS.Log("(Framework) Response OK")
-          resultStr = result.Content()
-          resultStatus = result.Status()
-          resultHeaders = result.Headers()
-          if resultStr is not None:
-            resultLen = len(resultStr)
-            if resultLen > 0:
-              resultHeaders += "Content-Length: %i\r\n" % resultLen
-            resultStr = "\r\n%s" % resultStr
-          else:
-            resultStr = ""
-          response = str("%s\r\n%s" % (resultStatus, resultHeaders)) + str(resultStr) + str("\r\n")
-          
-        __return(response)
+      response = None
+      
+      # If the request wasn't handled, return an error
+      if result == None:
+        PMS.Log("(Framework) Request not handled by plug-in", False)
+        response = "%s\r\n\r\n" % PMS.Error['NotFound']
+        
+      # If the plugin returned an error, return it to PMS
+      elif result in PMS.Error.values():
+        PMS.Log("(Framework) Plug-in returned an error :  %s" % result, False)
+        response = "%s\r\n\r\n" % result
+        
+      # Otherwise, check if a valid object was returned, and return the result
+      elif __objectManager.ObjectHasBase(result, Objects.Object):
+        resultStr = result.Content()
+        resultStatus = result.Status()
+        resultHeaders = result.Headers()
+      
+      elif isinstance(result, basestring):
+        resultStr = result
+        resultStatus = '200 OK'
+        resultHeaders = "Content-type: text/plain\r\n"
+      
+      if resultStr is not None:
+        PMS.Log("(Framework) Response OK")
+        resultLen = len(resultStr)
+        if resultLen > 0:
+          resultHeaders += "Content-Length: %i\r\n" % resultLen
+          resultStr = "\r\n"+resultStr
+        
+      else:
+        resultStr = ""
+        resultStatus = '500 Internal Server Error'
+        resultHeaders = ''
+        PMS.Log("(Framework) Unknown response type")
+        
+      if response == None:
+        response = str("%s\r\n%s" % (resultStatus, resultHeaders)) + str(resultStr) + str("\r\n")
+      
+      #PMS.Log("\n---\n"+response+"---\n")
+        
+      __return(response)
     
     # If a KeyboardInterrupt (SIGINT) is raised, stop the plugin
     except KeyboardInterrupt:
@@ -543,10 +597,10 @@ def __handlePMSRequest(pathNouns, path, **kwargs):
       hasPrefs = len(Prefs.__prefs) > 0
       for key in __requestHandlers:
         handler = __requestHandlers[key]
-        dir.Append(Objects.XMLObject(tagName="Prefix", key=key, name=handler["name"], thumb=R(handler["thumb"]), art=R(handler["art"]), hasPrefs=hasPrefs, identifier=Identifier))
+        dir.Append(Objects.XMLObject(tagName="Prefix", key=key, name=handler["name"], thumb=R(handler["thumb"]), art=R(handler["art"]), titleBar=R(handler["titleBar"]), hasPrefs=hasPrefs, identifier=Identifier))
       for key in __prefixHandlers:
         handler = __prefixHandlers[key]
-        dir.Append(Objects.XMLObject(tagName="Prefix", key=key, name=handler["name"], thumb=R(handler["thumb"]), art=R(handler["art"]), hasPrefs=hasPrefs, identifier=Identifier))
+        dir.Append(Objects.XMLObject(tagName="Prefix", key=key, name=handler["name"], thumb=R(handler["thumb"]), art=R(handler["art"]), titleBar=R(handler["titleBar"]), hasPrefs=hasPrefs, identifier=Identifier))
       return dir
       
     # Set rating
@@ -559,49 +613,63 @@ def __handlePMSRequest(pathNouns, path, **kwargs):
         __except()
       return
       
+    # Jump directly to the root prefix based on identifier
+    elif len(pathNouns) == 4 and pathNouns[1] == 'plugins' and pathNouns[3] == 'root':
+      keys = __prefixHandlers.keys()
+      keys.extend(__requestHandlers.keys())
+      for key in keys:
+        if key.startswith('/video'):
+          return Objects.Redirect(key)
+      for key in keys:
+        if key.startswith('/music'):
+          return Objects.Redirect(key)
+      return Objects.Redirect(keys[0])
+      
 ####################################################################################################    
 
-def __handleInternalRequest(pathNouns, path, **kwargs):
+def __handleInternalRequest(pathNouns, _path, **kwargs):
   #
   # Handle a request internally
   #
   if len(pathNouns) > 1:
     if pathNouns[1] == "resources":
       if len(pathNouns) == 3:
-        if Resource.__publicResources.has_key(pathNouns[2]):
-          PMS.Log("(Framework) Getting resource named '%s'" % pathNouns[2])
-          resource = Resource.Load(pathNouns[2])
-          return Objects.DataObject(resource, Resource.__publicResources[pathNouns[2]])
+        ext = pathNouns[2][pathNouns[2].rfind("."):]
+        PMS.Log("(Framework) Getting resource named '%s'" % pathNouns[2])
+        resource = Resource.Load(pathNouns[2])
+        return Objects.DataObject(resource, Resource.MimeTypeForExtension(ext))
 
     if pathNouns[1] == "sharedresources":
       if len(pathNouns) == 3:
-        if Resource.__publicSharedResources.has_key(pathNouns[2]):
-          PMS.Log("(Framework) Getting shared resource named '%s'" % pathNouns[2])
-          resource = Resource.LoadShared(pathNouns[2])
-          return Objects.DataObject(resource, Resource.__publicSharedResources[pathNouns[2]])
-
-    elif pathNouns[1] == "function" and len(pathNouns) >= 4:
+        ext = pathNouns[2][pathNouns[2].rfind("."):]
+        PMS.Log("(Framework) Getting shared resource named '%s'" % pathNouns[2])
+        resource = Resource.LoadShared(pathNouns[2])
+        return Objects.DataObject(resource, Resource.MimeTypeForExtension(ext))
+        
+    elif pathNouns[1] == "function" and len(pathNouns) >= 3:
       name = pathNouns[2]
+      pos = name.rfind(".")
+      if pos > -1:
+        name = name[:pos]
+      PMS.Log(name)
       if name not in __reservedFunctionNames:
-        encodedArgs = pathNouns[3]
-        pos = encodedArgs.rfind(".")
-        if pos > -1:
-          encodedArgs = encodedArgs[:pos]
-        fkwargs = pickle.loads(D(encodedArgs))
-        # Override encoded kwargs with kwargs passed in the URL
-        for key in kwargs:
-          fkwargs[key] = kwargs[key]
         if len(pathNouns) == 4:
-          return __callNamed(name, **fkwargs)
-        elif len(pathNouns) == 5:
-          return __callNamed(name, query=pathNouns[4], **fkwargs)
-
+          kwargs['query'] = pathNouns[3]
+          
+        result = __callNamed(name, **kwargs)
+        #PMS.Log(result)
+        return result
+        
     elif pathNouns[1] == "prefs":
       if len(pathNouns) == 2:
         return Prefs.__container()
       else:
         Prefs.__setAll(kwargs)
-        return __callNamed("ValidatePrefs", addToLog=False)
+        result = __callNamed("ValidatePrefs", addToLog=False)
+        if result:
+          return result
+        else:
+          return ''
 
 ####################################################################################################
 

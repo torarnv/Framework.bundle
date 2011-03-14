@@ -8,9 +8,9 @@ from Shortcuts import *
 
 ####################################################################################################
 
-def handler(prefix, name, thumb="icon-default.png", art="art-default.png"):
+def handler(prefix, name, thumb="icon-default.png", art="art-default.png", titleBar="titlebar-default.png"):
   def pms_fwk_handler_wrapper(f):
-    Plugin.AddPrefixHandler(prefix, f, L(name), thumb, art)
+    Plugin.AddPrefixHandler(prefix, f, L(name), thumb, art, titleBar)
     return f
   return pms_fwk_handler_wrapper
   
@@ -136,21 +136,25 @@ class task(object):
 
 def modify_dict(key):
   def pms_fwk_modifydict_wrapper(f):
-  	lockname = "Framework.ModDict:" + key
-  	Thread.Lock(lockname, addToLog=False)
-  	dictitem = Dict.Get(key)
-  	f(dictitem)
-  	Dict.Set(key, dictitem, addToLog=False)
-  	Thread.Unlock(lockname, addToLog=False)
+    lockname = "Framework.ModDict:" + key
+    try:
+      Thread.Lock(lockname, addToLog=False)
+      dictitem = Dict.Get(key)
+      f(dictitem)
+      Dict.Set(key, dictitem, addToLog=False)
+    finally:
+      Thread.Unlock(lockname, addToLog=False)
   return pms_fwk_modifydict_wrapper
   
 ####################################################################################################
 
 def lock(f):
   lockname = "Framework.Lock:" + f.__name__
-  Thread.Lock(lockname, addToLog=False)
-  f()
-  Thread.Unlock(lockname, addToLog=False)
+  try:
+    Thread.Lock(lockname, addToLog=False)
+    f()
+  finally:
+    Thread.Unlock(lockname, addToLog=False)
   return f
 
 ####################################################################################################

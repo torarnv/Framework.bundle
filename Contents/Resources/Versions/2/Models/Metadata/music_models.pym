@@ -1,0 +1,33 @@
+#
+#  Plex Extension Framework
+#  Copyright (C) 2008-2010 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
+#
+
+from common_templates import MediaProxyContainer
+
+class Track(Template.Record):
+  name              = Template.String()
+
+class Artist(MetadataModel):
+  title             = Template.String()
+  summary           = Template.String()
+  posters           = MediaProxyContainer()
+  art               = MediaProxyContainer()
+  themes            = MediaProxyContainer()
+  
+class Album(MetadataModel):
+  artist                  = Template.Link(Artist)
+  title                   = Template.String()
+  summary                 = Template.String()
+  studio                  = Template.String()
+  originally_available_at = Template.Date()
+  producers               = Template.Set(Template.String())
+  countries               = Template.Set(Template.String())  
+  posters                 = MediaProxyContainer()
+  tracks                  = Template.Map(Track())
+
+  # Interface settings.
+  producers.xml_tag       = 'Producer'
+  countries.xml_tag       = 'Country'
+
+Artist.albums = Template.Set(Template.Link(Album))

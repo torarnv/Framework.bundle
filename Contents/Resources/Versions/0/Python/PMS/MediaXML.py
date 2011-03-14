@@ -371,7 +371,7 @@ class WebVideoItem(VideoItem):
       @return: DirectoryItem
     """
     prefix = Plugin.Prefixes()[0]
-    key = "plex://localhost/video/:/webkit?url=%s&prefix=%s" % (urllib.quote_plus(url), prefix)
+    key = "plex://127.0.0.1/video/:/webkit?url=%s&prefix=%s" % (urllib.quote_plus(url), prefix)
     VideoItem.__init__(self, key, title, summary, duration, thumb)
 
 ####################################################################################################

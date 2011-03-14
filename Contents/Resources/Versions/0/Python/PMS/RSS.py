@@ -9,7 +9,7 @@
 
 # TODO: Add more functionality
 
-from __lib import feedparser
+import feedparser
 
 ####################################################################################################
 

@@ -15,7 +15,7 @@ __mimeTypes = None
 
 ####################################################################################################
 
-def __load(path, binary=False):
+def __load(path, binary=True):
   if os.path.exists(path):
     if not binary:
       f = open(path, "r")
@@ -59,7 +59,7 @@ def __realSharedItemName(itemName):
 ####################################################################################################
 ####################################################################################################
 
-def Load(itemName, binary=False):
+def Load(itemName, binary=True):
   data = __load("%s/%s" % (__resourcePath, itemName), binary)
   if data is not None:
     PMS.Log("(Framework) Loaded resource named '%s'" % itemName)
@@ -67,7 +67,7 @@ def Load(itemName, binary=False):
 
 ####################################################################################################
 
-def LoadShared(itemName, binary=False):
+def LoadShared(itemName, binary=True):
   data = __load("%s/%s" % (__sharedResourcePath, itemName), binary)
   if data is not None:
     PMS.Log("(Framework) Loaded shared resource named '%s'" % itemName)

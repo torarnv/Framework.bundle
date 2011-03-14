@@ -7,8 +7,17 @@
 import os, sys
 from xml.dom import minidom
 
+if sys.platform == "win32":
+  # This is needed to ensure binary data transfer over stdio between PMS and plugins
+  import msvcrt
+  msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+  msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+
+  # This is needed to prevent explosions when there's a system Python installed whose libraries conflict with our own
+  for x in [x for x in sys.path if 'plex' not in x.lower()]: sys.path.remove(x)
+
 # Set the default encoding
-__plist_path = os.path.join(sys.argv[1], "Contents/Info.plist")
+__plist_path = os.path.join(sys.argv[-1], "Contents/Info.plist")
 __plist = minidom.parse(__plist_path)
 __encoding = "utf-8"
 for el in __plist.getElementsByTagName("plist")[0].getElementsByTagName("dict")[0].getElementsByTagName("key"):
@@ -17,9 +26,15 @@ for el in __plist.getElementsByTagName("plist")[0].getElementsByTagName("dict")[
 reload(sys)
 sys.setdefaultencoding(__encoding)
 
+import importer
+#importer.install()
+
 # Make the libraries available
-PMSLibPath = os.path.join(sys.path[0], "../Libraries")
+from platform import Platform
+PMSLibPath = os.path.join(sys.path[0], "../../../Platforms/%s/%s/Libraries" % (Platform.OS, Platform.CPU))
+PMSSharedLibPath = os.path.join(sys.path[0], "../../../Platforms/Shared/Libraries")
 sys.path.append(PMSLibPath)
+sys.path.append(PMSSharedLibPath)
 
 # Import the Plugin module
 import PMS.Plugin, PMS.JSON, PMS.Resource
@@ -30,4 +45,4 @@ PMS.Resource.__mimeTypes = PMS.JSON.ObjectFromString(f.read())
 f.close()
 
 # Run the plugin
-if len(sys.argv) == 2: PMS.Plugin.__run(sys.argv[1])
+if len(sys.argv) >= 2: PMS.Plugin.__run(sys.argv[-1])

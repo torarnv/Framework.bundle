@@ -24,7 +24,11 @@ def Add(msg, debugOnly=True):
   """
   if not debugOnly or Plugin.Debug:
     logmsg = "%s: %-32s:   %s" % (str(datetime.now().time()), Plugin.Identifier, str(msg))
-    sys.stderr.write("%s\n" % logmsg)
+    
+    # Don't write to stderr on Windows, it causes issues.
+    if sys.platform != "win32":
+      sys.stderr.write("%s\n" % logmsg)
+      
     f = open(Plugin.__logFilePath, 'a')
     f.write("%s\n" % logmsg)
     f.close()

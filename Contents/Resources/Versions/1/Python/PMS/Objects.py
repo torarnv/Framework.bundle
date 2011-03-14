@@ -3,8 +3,29 @@
 #  Copyright (C) 2008-2009 Plex Development Team (James Clarke, Elan Feingold). All Rights Reserved.
 #
 
-import PMS, Plugin, XML, String, Data, __objectManager as ObjectManager
-import operator
+import PMS, Plugin, XML, String, Data, Hash, __objectManager as ObjectManager
+import operator, random, urllib, types, cerealizer
+
+testMode = False
+testDefaults = {}
+
+# Decorator to make function return immediatley
+def test(f):
+  def foo(*args, **kw):
+    return
+  if testMode:
+    return f
+  else:
+    return foo
+
+@test
+def setTestDefaults(minElements=None, maxElements=None, recursePercent=None):
+  if minElements != None:
+    testDefaults['minElements'] = minElements
+  if maxElements != None:
+    testDefaults['maxElements'] = maxElements
+  if recursePercent != None:
+    testDefaults['recursePercent'] = recursePercent
 
 ####################################################################################################
 
@@ -191,6 +212,7 @@ class MediaContainer(XMLContainer):
 
   def __init__(self, art=None, viewGroup=None, title1=None, title2=None, noHistory=False, replaceParent=False, disabledViewModes=None, **kwargs):
     XMLContainer.__init__(self, art=art, title1=title1, title2=title2, noHistory=noHistory, replaceParent=replaceParent, **kwargs)
+    self.addTest(**testDefaults)
     if viewGroup is not None:
       if viewGroup in Plugin.ViewGroups().keys():
         self.viewGroup = viewGroup
@@ -247,6 +269,8 @@ class MediaContainer(XMLContainer):
           info.itemTitle = item.title
         elif item.__dict__.has_key("name"):
           info.itemTitle = item.name
+        else:
+          info.itemTitle = None
         
         # Add sender information to functions
         if ObjectManager.ObjectHasBase(item, Function):
@@ -268,7 +292,7 @@ class MediaContainer(XMLContainer):
       item.contextKey = __itemContextKey
       item.contextArgs = __itemContextArgs
         
-    root.set("count", str(len(self)))
+    root.set("size", str(len(self)))
     if self.__dict__.has_key("viewGroup"):
       root.set("viewmode", str(Plugin.ViewGroups()[self.viewGroup]["ViewMode"]))
       root.set("contenttype", str(Plugin.ViewGroups()[self.viewGroup]["MediaType"]))
@@ -277,6 +301,16 @@ class MediaContainer(XMLContainer):
     
     self.contextMenu = __containerContextMenu
     return root
+    
+  @test
+  def addTest(self, minElements=None, maxElements=None, recursePercent=None):
+    if minElements != None:
+      self.test_minElements = minElements
+    if maxElements != None:
+      self.test_maxElements = maxElements
+    if recursePercent != None:
+      self.test_recursePercent = recursePercent
+
 
 ####################################################################################################
 
@@ -305,6 +339,12 @@ class InputDirectoryItem(XMLObject):
   def __init__(self, key, title, prompt, subtitle=None, summary=None, thumb=None, art=None, **kwargs):
     XMLObject.__init__(self, key=key, name=title, subtitle=subtitle, summary=summary, thumb=thumb, search=True, prompt=prompt, art=art, **kwargs)
     self.tagName = "Directory"
+    
+  @test
+  def testQuery(self, query, expected=None):
+    self.query = query
+    if expected != None:
+      self.test_expected = expected
 
 ####################################################################################################
 
@@ -327,7 +367,7 @@ class WebVideoItem(XMLObject):
     if Plugin.LastPrefix: prefix = Plugin.LastPrefix
     else: prefix = Plugin.Prefixes()[0]
     if isinstance(url, basestring):
-      key = "plex://localhost/video/:/webkit?url=%s&prefix=%s" % (String.Quote(url, usePlus=True), prefix)
+      key = "plex://127.0.0.1/video/:/webkit?url=%s&prefix=%s" % (String.Quote(url, usePlus=True), prefix)
     else:
       key = url
     XMLObject.__init__(self, key=key, title=title, subtitle=subtitle, summary=summary, duration=duration, thumb=thumb, art=art, **kwargs)
@@ -381,6 +421,11 @@ class TrackItem(XMLObject):
     
 ####################################################################################################
 
+class ProxyObject(object): pass
+
+def create_query_string(kwargs):
+  return 'function_args='+PMS.String.Quote(PMS.String.Encode(cerealizer.dumps(kwargs)))
+
 class Function(XMLObject):
   def __init__(self, obj, ext=None, **kwargs):
     XMLObject.__init__(self)
@@ -409,18 +454,22 @@ class Function(XMLObject):
   
   def ToElement(self):
     # Modify the key to call a function with the given kwargs
-    pickledArgs = Data.pickle.dumps(self.__kwargs)
-    encodedArgs = String.Encode(pickledArgs)
-    self.key = "%s/:/function/%s/%s" % (Plugin.CurrentPrefix(), self.__obj.key.__name__, "%s%s" % (encodedArgs, self.__ext))
+    
+    queryString = create_query_string(self.__kwargs)
+    if queryString and len(queryString) > 0: queryString = '?' + queryString
+    else: queryString = ''
+    
+    self.key = "%s/:/function/%s%s%s" % (Plugin.CurrentPrefix(), self.__obj.key.__name__, self.__ext, queryString)
     return XMLObject.ToElement(self)
     
   # Allow returning just the function path
   def __str__(self):
     if "key" in self.__dict__:
       if type(self.key).__name__ == "function":
-        pickledArgs = Data.pickle.dumps(self.__kwargs)
-        encodedArgs = String.Encode(pickledArgs)
-        return "%s/:/function/%s/%s" % (Plugin.CurrentPrefix(), self.key.__name__, "%s%s" % (encodedArgs, self.__ext))
+        queryString = create_query_string(self.__kwargs)
+        if queryString and len(queryString) > 0: queryString = '?' + queryString
+        else: queryString = ''
+        return "%s/:/function/%s%s%s" % (Plugin.CurrentPrefix(), self.key.__name__, self.__ext, queryString)
     return XMLObject.__str__(self)
     
   def __repr__(self):
@@ -448,6 +497,31 @@ class Redirect(Object):
 
   def __repr__(self):
     return 'Redirect(%s)' % (repr(self.__dict__['_Object__headers']['Location']))
+    
+  def Content(self):
+    return ""
 
 ####################################################################################################
+
+cerealizer.register(Object)
+cerealizer.register(Container)
+cerealizer.register(XMLObject)
+cerealizer.register(XMLContainer)
+cerealizer.register(DataObject)
+cerealizer.register(ItemInfoRecord)
+cerealizer.register(ContextMenu)
+cerealizer.register(MediaContainer)
+cerealizer.register(MessageContainer)
+cerealizer.register(DirectoryItem)
+cerealizer.register(PopupDirectoryItem)
+cerealizer.register(InputDirectoryItem)
+cerealizer.register(VideoItem)
+cerealizer.register(WebVideoItem)
+cerealizer.register(RTMPVideoItem)
+cerealizer.register(WindowsMediaVideoItem)
+cerealizer.register(PhotoItem)
+cerealizer.register(TrackItem)
+cerealizer.register(Function)
+cerealizer.register(PrefsItem)
+cerealizer.register(Redirect)
 

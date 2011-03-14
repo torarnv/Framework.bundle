@@ -6,12 +6,16 @@
 """
   Functions for interacting with web services.
 """
-import urllib, urllib2, cookielib, os.path, datetime
+import urllib, urllib2, cookielib, os.path, datetime, socket
 import Plugin, Log
 
 __cookieFile = "/CookieJar"
 __cookieJar = cookielib.LWPCookieJar()
 __headers =  {'User-agent' : 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'}
+
+def SetTimeout(timeout):
+  socket.setdefaulttimeout(timeout)
+  Log.Add("(Framework) Set the default socket timeout to %.1f seconds" % timeout)
 
 ####################################################################################################
 
